@@ -312,6 +312,8 @@ async def check_site():
             headless=False,
             args=[
                 "--disable-blink-features=AutomationControlled",
+                "--window-position=-2000,-2000",
+                "--window-size=1920,1080",
             ],
         )
 

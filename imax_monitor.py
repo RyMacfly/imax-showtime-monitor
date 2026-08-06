@@ -16,7 +16,7 @@ load_dotenv()  # Load environment variables from .env file
 URL = "https://www.imax.com/theatre/regal-edwards-boise-imax"
 
 # Check every 10 minutes for new showtimes.
-CHECK_INTERVAL_MINUTES = 1
+CHECK_INTERVAL_MINUTES = 10
 
 STATE_FILE = "imax_state.json"
 

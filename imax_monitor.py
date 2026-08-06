@@ -21,7 +21,7 @@ load_dotenv()
 
 URL = "https://www.imax.com/theatre/regal-edwards-boise-imax"
 
-CHECK_INTERVAL_MINUTES = 1
+CHECK_INTERVAL_MINUTES = 15
 
 STATE_FILE = "imax_state.json"
 
@@ -52,9 +52,7 @@ def log(message):
 # ============================================================
 
 def get_foreground_window():
-    """
-    Get the Windows window that currently has focus.
-    """
+    """Get the Windows window that currently has focus."""
 
     return ctypes.windll.user32.GetForegroundWindow()
 
@@ -88,11 +86,11 @@ def load_state():
                 "available": false,
                 "day": "Friday"
             }
-        },
-        "Spider-Man: Brand New Day": {
-            ...
         }
     }
+
+    Movie state is intentionally kept even if a movie
+    temporarily disappears from the IMAX page.
     """
 
     if not os.path.exists(STATE_FILE):
@@ -146,8 +144,8 @@ def send_discord_notification(new_showtimes):
     Send a Discord webhook notification for newly
     released showtimes.
 
-    This runs in a background thread so it doesn't
-    block the asyncio event loop.
+    Runs in a background thread so it doesn't block
+    the asyncio event loop.
     """
 
     if not DISCORD_WEBHOOK_URL:
@@ -255,7 +253,7 @@ async def notify_discord(new_showtimes):
 
 
 # ============================================================
-# MOVIE SELECTION
+# MOVIES
 # ============================================================
 
 async def get_movies(page):
@@ -263,14 +261,7 @@ async def get_movies(page):
     Find all movies currently displayed in the IMAX
     movie carousel.
 
-    Returns a list such as:
-
-    [
-        "The Odyssey",
-        "Spider-Man: Brand New Day",
-        "Ghost: 2 Big to Rig",
-        "Katy Perry: The Lifetimes Tour - Live From Paris"
-    ]
+    Returns a list of movie titles.
     """
 
     movies = []
@@ -310,16 +301,33 @@ async def get_movies(page):
 
 async def choose_movies(page):
     """
-    Display the available movies and allow the user
-    to select one movie or all movies.
+    Let the user choose between:
 
-    Returns a list of movie titles.
+        1. Monitoring one movie
+        A. Dynamically monitoring all movies
+
+    Returns:
+
+        {
+            "mode": "all",
+            "movies": [...]
+        }
+
+    or:
+
+        {
+            "mode": "single",
+            "movies": [...]
+        }
     """
 
-    log("Finding available IMAX movies...")
+    log(
+        "Finding available IMAX movies..."
+    )
 
-    # Give the carousel time to render.
-    await page.wait_for_timeout(2_000)
+    await page.wait_for_timeout(
+        2_000
+    )
 
     movies = await get_movies(page)
 
@@ -344,7 +352,10 @@ async def choose_movies(page):
         )
 
     print()
-    print("A. Check all movies")
+    print(
+        "A. Check all movies "
+        "(automatically detect additions/removals)"
+    )
     print()
 
     while True:
@@ -356,10 +367,14 @@ async def choose_movies(page):
         if choice == "a":
 
             log(
-                f"Selected all {len(movies)} movies."
+                f"🎬 Dynamic all-movie monitoring enabled "
+                f"({len(movies)} movies currently listed)."
             )
 
-            return movies
+            return {
+                "mode": "all",
+                "movies": movies,
+            }
 
         try:
 
@@ -370,10 +385,13 @@ async def choose_movies(page):
                 selected = movies[index]
 
                 log(
-                    f"Selected movie: {selected}"
+                    f"🎬 Monitoring only: {selected}"
                 )
 
-                return [selected]
+                return {
+                    "mode": "single",
+                    "movies": [selected],
+                }
 
         except ValueError:
             pass
@@ -387,6 +405,10 @@ async def choose_movies(page):
 async def select_movie(page, movie):
     """
     Select a specific movie from the movie carousel.
+
+    The click is performed through JavaScript because
+    the site's carousel/sticky header can intercept
+    normal Playwright pointer clicks.
     """
 
     image = page.locator(
@@ -407,7 +429,9 @@ async def select_movie(page, movie):
         "(element) => element.click()"
     )
 
-    await page.wait_for_timeout(2_000)
+    await page.wait_for_timeout(
+        2_000
+    )
 
     calendar = page.locator(
         '[role="grid"]'
@@ -427,16 +451,6 @@ async def get_weekend_dates(page):
     """
     Find Friday, Saturday, and Sunday currently shown
     in the IMAX calendar.
-
-    Returns:
-
-    {
-        "2026-08-07": {
-            "available": False,
-            "day": "Friday"
-        },
-        ...
-    }
     """
 
     calendar = page.locator(
@@ -464,7 +478,6 @@ async def get_weekend_dates(page):
             await button.inner_text()
         ).strip()
 
-        # Ignore anything that isn't an actual date.
         if not text.isdigit():
             continue
 
@@ -517,14 +530,17 @@ def detect_new_showtimes(
     current
 ):
     """
-    Compare a movie's previous state to its current state.
-
-    A notification is generated when a date changes:
+    Detect dates that changed from:
 
         unavailable -> available
     """
 
     new_showtimes = []
+
+    previous_movie = previous.get(
+        movie,
+        {}
+    )
 
     for date, info in current.items():
 
@@ -533,10 +549,12 @@ def detect_new_showtimes(
         )
 
         previously_available = (
-            previous
-            .get(movie, {})
+            previous_movie
             .get(date, {})
-            .get("available", False)
+            .get(
+                "available",
+                False
+            )
         )
 
         if (
@@ -554,44 +572,44 @@ def detect_new_showtimes(
 
 
 # ============================================================
-# STATUS DISPLAY
+# MOVIE LIST CHANGES
 # ============================================================
 
-def print_status(
-    movie,
-    weekend
+def detect_movie_changes(
+    previous_movies,
+    current_movies
 ):
-    """Print the current calendar status."""
+    """
+    Compare the movie list from the previous cycle
+    to the current cycle.
 
-    print()
+    Returns:
 
-    print(
-        f"--- {movie} ---"
+        added_movies
+        removed_movies
+    """
+
+    previous_set = set(
+        previous_movies
     )
 
-    if not weekend:
+    current_set = set(
+        current_movies
+    )
 
-        log(
-            "⚠️ No dates found."
-        )
+    added_movies = [
+        movie
+        for movie in current_movies
+        if movie not in previous_set
+    ]
 
-        return
+    removed_movies = [
+        movie
+        for movie in previous_movies
+        if movie not in current_set
+    ]
 
-
-
-def print_new_showtimes(
-    new_showtimes
-):
-    """Print newly released showtimes."""
-
-    for showtime in new_showtimes:
-
-        log(
-            f"🚨 NEW SHOWTIME: "
-            f"{showtime['movie']} | "
-            f"{showtime['day']}, "
-            f"{showtime['date']}"
-        )
+    return added_movies, removed_movies
 
 
 # ============================================================
@@ -640,37 +658,70 @@ async def open_browser():
 
     page = await context.new_page()
 
-    # Give Windows time to create the Chromium window.
-    await page.wait_for_timeout(500)
+    await page.wait_for_timeout(
+        500
+    )
 
-    # Restore the user's focus.
     restore_focus(
         previous_window
     )
 
-    return p, browser, context, page
+    return (
+        p,
+        browser,
+        context,
+        page
+    )
 
+
+async def refresh_movie_list(page):
+    """
+    Re-read the movie carousel from the live page.
+
+    This is used in 'all' mode every monitoring cycle.
+    """
+
+    movies = await get_movies(page)
+
+    if not movies:
+
+        raise RuntimeError(
+            "No movies currently found in carousel."
+        )
+
+    return movies
+
+
+# ============================================================
+# INITIAL SITE SETUP
+# ============================================================
 
 async def check_site():
     """
     Open the IMAX site and allow the user to select
-    which movie(s) to monitor.
+    a movie or dynamic all-movie monitoring.
 
     Returns:
 
-        page
+        p
         browser
-        playwright instance
-        selected movies
+        context
+        page
+        monitoring_config
     """
 
-    p, browser, context, page = (
-        await open_browser()
-    )
+    (
+        p,
+        browser,
+        context,
+        page
+    ) = await open_browser()
 
     try:
 
-        log("Opening IMAX...")
+        log(
+            "Opening IMAX..."
+        )
 
         response = await page.goto(
             URL,
@@ -685,13 +736,10 @@ async def check_site():
                 f"{response.status}"
             )
 
-        # Give IMAX's JavaScript / verification
-        # time to run.
         await page.wait_for_timeout(
             5_000
         )
 
-        # Wait for the movie carousel.
         movie_cards = page.locator(
             '[data-testid="movie-card"]'
         )
@@ -725,18 +773,24 @@ async def check_site():
 
                 f.write(html)
 
-            return None, None, None, None
+            return (
+                None,
+                None,
+                None,
+                None,
+                None
+            )
 
-        # Ask the user what movie(s) to monitor.
-        selected_movies = await choose_movies(
-            page
+        monitoring_config = (
+            await choose_movies(page)
         )
 
         return (
             p,
             browser,
+            context,
             page,
-            selected_movies
+            monitoring_config
         )
 
     except Exception:
@@ -756,29 +810,43 @@ async def monitor():
     state = load_state()
 
     try:
+
         (
             p,
             browser,
+            context,
             page,
-            selected_movies
+            monitoring_config
         ) = await check_site()
 
     except Exception as e:
-        log(f"❌ Could not start monitor: {e}")
+
+        log(
+            f"❌ Could not start monitor: {e}"
+        )
+
         return
 
-    if not selected_movies:
+    if not monitoring_config:
 
-        log("❌ No movies selected.")
+        log(
+            "❌ No monitoring configuration."
+        )
 
         await browser.close()
         await p.stop()
 
         return
 
-    log(
-        f"🎬 Monitoring {len(selected_movies)} movie(s): "
-        + ", ".join(selected_movies)
+    mode = monitoring_config["mode"]
+
+    selected_movies = (
+        monitoring_config["movies"]
+    )
+
+    # This is used only in all mode.
+    previous_movie_list = (
+        selected_movies.copy()
     )
 
     try:
@@ -789,14 +857,82 @@ async def monitor():
                 BOISE_TZ
             )
 
+            all_new_showtimes = []
+            errors = 0
+
+            # ------------------------------------------------
+            # REFRESH MOVIE LIST IN ALL MODE
+            # ------------------------------------------------
+
+            if mode == "all":
+
+                try:
+
+                    current_movies = (
+                        await refresh_movie_list(
+                            page
+                        )
+                    )
+
+                    (
+                        added_movies,
+                        removed_movies
+                    ) = detect_movie_changes(
+                        previous_movie_list,
+                        current_movies
+                    )
+
+                    if added_movies:
+
+                        for movie in added_movies:
+
+                            log(
+                                f"🆕 New movie detected: "
+                                f"{movie}"
+                            )
+
+                    if removed_movies:
+
+                        for movie in removed_movies:
+
+                            log(
+                                f"🗑️ Movie removed: "
+                                f"{movie}"
+                            )
+
+                    selected_movies = (
+                        current_movies
+                    )
+
+                    previous_movie_list = (
+                        current_movies.copy()
+                    )
+
+                except Exception as e:
+
+                    errors += 1
+
+                    log(
+                        f"❌ Could not refresh movie list: "
+                        f"{e}"
+                    )
+
+                    # If the movie list cannot be refreshed,
+                    # continue using the previous list.
+                    selected_movies = (
+                        previous_movie_list
+                    )
+
+            # ------------------------------------------------
+            # CHECK MOVIES
+            # ------------------------------------------------
+
             log(
-                f"🔍 Checking {len(selected_movies)} "
-                f"movie(s)..."
+                f"🔍 Checking "
+                f"{len(selected_movies)} movie(s)..."
             )
 
             checked = 0
-            errors = 0
-            all_new_showtimes = []
 
             for movie in selected_movies:
 
@@ -827,9 +963,13 @@ async def monitor():
                             new_showtimes
                         )
 
+                    # Only update state after a
+                    # successful calendar read.
                     state[movie] = weekend
 
-                    save_state(state)
+                    save_state(
+                        state
+                    )
 
                     checked += 1
 
@@ -842,25 +982,23 @@ async def monitor():
                     )
 
             # ------------------------------------------------
-            # Notifications
+            # DISCORD NOTIFICATIONS
             # ------------------------------------------------
 
             if all_new_showtimes:
-
-                print_new_showtimes(
-                    all_new_showtimes
-                )
 
                 await notify_discord(
                     all_new_showtimes
                 )
 
             # ------------------------------------------------
-            # Cycle summary
+            # CYCLE SUMMARY
             # ------------------------------------------------
 
             elapsed = (
-                datetime.now(BOISE_TZ)
+                datetime.now(
+                    BOISE_TZ
+                )
                 - cycle_start
             ).total_seconds()
 
@@ -869,8 +1007,9 @@ async def monitor():
                 if all_new_showtimes:
 
                     log(
-                        f"🚨 Checked {checked} movies "
-                        f"in {elapsed:.1f}s — "
+                        f"🚨 Checked "
+                        f"{checked} movies in "
+                        f"{elapsed:.1f}s — "
                         f"{len(all_new_showtimes)} "
                         f"new showtime(s) found!"
                     )
@@ -878,16 +1017,18 @@ async def monitor():
                 else:
 
                     log(
-                        f"✅ Checked {checked} movies "
-                        f"in {elapsed:.1f}s — "
+                        f"✅ Checked "
+                        f"{checked} movies in "
+                        f"{elapsed:.1f}s — "
                         f"no new showtimes."
                     )
 
             else:
 
                 log(
-                    f"⚠️ Checked {checked} movies "
-                    f"in {elapsed:.1f}s — "
+                    f"⚠️ Checked "
+                    f"{checked} movies in "
+                    f"{elapsed:.1f}s — "
                     f"{errors} error(s)."
                 )
 
@@ -902,7 +1043,9 @@ async def monitor():
 
     finally:
 
-        log("Closing browser...")
+        log(
+            "Closing browser..."
+        )
 
         await browser.close()
         await p.stop()
@@ -923,6 +1066,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
 
         print()
+
         log(
             "Monitor stopped."
         )

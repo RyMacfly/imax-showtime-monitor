@@ -14,11 +14,10 @@ load_dotenv()  # Load environment variables from .env file
 
 URL = "https://www.imax.com/theatre/regal-edwards-boise-imax"
 
-# Check every 15 minutes for new showtimes. This is a balance between
+# Check every 10 minutes for new showtimes. This is a balance between
 # being responsive to new showtimes and not overloading the IMAX server.
-INTERVAL_MINUTES = 15
 
-CHECK_INTERVAL = 60 * INTERVAL_MINUTES
+CHECK_INTERVAL_MINUTES = 10
 
 STATE_FILE = "imax_state.json"
  
@@ -345,7 +344,7 @@ async def check_site():
             response = await page.goto(
                 URL,
                 wait_until="domcontentloaded",
-                timeout=60_000,
+                timeout=CHECK_INTERVAL_MINUTES * 1000,
             )
 
             print(
@@ -452,11 +451,11 @@ async def monitor():
 
         print(
             f"\nRetrying in "
-            f"{CHECK_INTERVAL} seconds..."
+            f"{CHECK_INTERVAL_MINUTES} minutes..."
         )
 
         await asyncio.sleep(
-            CHECK_INTERVAL
+            CHECK_INTERVAL_MINUTES * 60
         )
 
 

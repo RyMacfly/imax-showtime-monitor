@@ -1,5 +1,6 @@
 
 import asyncio
+import ctypes
 import json
 import os
 from datetime import datetime, timedelta
@@ -14,17 +15,47 @@ load_dotenv()  # Load environment variables from .env file
 
 URL = "https://www.imax.com/theatre/regal-edwards-boise-imax"
 
-# Check every 10 minutes for new showtimes. This is a balance between
-# being responsive to new showtimes and not overloading the IMAX server.
-
-CHECK_INTERVAL_MINUTES = 10
+# Check every 10 minutes for new showtimes.
+CHECK_INTERVAL_MINUTES = 1
 
 STATE_FILE = "imax_state.json"
- 
+
 BOISE_TZ = ZoneInfo("America/Boise")
 
 # Discord webhook URL
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
+
+
+def log(message):
+    """Print a timestamped log message."""
+
+    now = datetime.now(BOISE_TZ)
+
+    print(
+        f"[{now.strftime('%Y-%m-%d %I:%M:%S %p')}] "
+        f"{message}"
+    )
+
+
+def get_foreground_window():
+    """
+    Get the Windows window that currently has focus.
+
+    This is used so Chromium can run without stealing
+    focus from whatever the user is currently doing.
+    """
+
+    return ctypes.windll.user32.GetForegroundWindow()
+
+
+def restore_focus(hwnd):
+    """
+    Restore focus to the window that was active before
+    Chromium was launched.
+    """
+
+    if hwnd:
+        ctypes.windll.user32.SetForegroundWindow(hwnd)
 
 
 def load_state():
@@ -34,11 +65,13 @@ def load_state():
         return {}
 
     try:
+
         with open(STATE_FILE, "r") as f:
             return json.load(f)
 
     except (json.JSONDecodeError, OSError):
-        print("Warning: Could not read state file.")
+
+        log("⚠️ Could not read state file.")
         return {}
 
 
@@ -46,33 +79,43 @@ def save_state(state):
     """Save the current showtime state."""
 
     with open(STATE_FILE, "w") as f:
-        json.dump(state, f, indent=2)
+        json.dump(
+            state,
+            f,
+            indent=2
+        )
 
 
 def send_discord_notification(new_showtimes):
     """
-    Send a Discord webhook notification for newly released showtimes.
+    Send a Discord webhook notification for newly
+    released showtimes.
 
-    This runs in a background thread so it doesn't block
+    Runs in a background thread so it doesn't block
     the asyncio event loop.
     """
 
     if not DISCORD_WEBHOOK_URL:
-        print("Warning: DISCORD_WEBHOOK_URL is not set.")
+
+        log(
+            "⚠️ DISCORD_WEBHOOK_URL is not set."
+        )
+
         return
 
     if not new_showtimes:
         return
 
-    # Build the Discord message.
     lines = [
         "🚨 **NEW IMAX SHOWTIMES RELEASED!** 🚨",
         "",
     ]
 
     for showtime in new_showtimes:
+
         lines.append(
-            f"🎬 **{showtime['day']}, {showtime['date']}**"
+            f"🎬 **{showtime['day']}, "
+            f"{showtime['date']}**"
         )
 
     lines.extend([
@@ -87,7 +130,9 @@ def send_discord_notification(new_showtimes):
         "username": "IMAX Showtime Monitor",
     }
 
-    data = json.dumps(payload).encode("utf-8")
+    data = json.dumps(
+        payload
+    ).encode("utf-8")
 
     request = Request(
         DISCORD_WEBHOOK_URL,
@@ -100,29 +145,42 @@ def send_discord_notification(new_showtimes):
     )
 
     try:
-        with urlopen(request, timeout=10) as response:
+
+        with urlopen(
+            request,
+            timeout=10
+        ) as response:
+
             if 200 <= response.status < 300:
-                log("✅ Discord notification sent!")
+
+                log(
+                    "✅ Discord notification sent!"
+                )
+
             else:
-                print(
+
+                log(
                     f"⚠️ Discord webhook returned "
                     f"HTTP {response.status}"
                 )
 
     except HTTPError as e:
-        print(
+
+        log(
             f"❌ Discord webhook HTTP error: "
             f"{e.code} {e.reason}"
         )
 
     except URLError as e:
-        print(
+
+        log(
             f"❌ Discord webhook connection error: "
             f"{e.reason}"
         )
 
     except Exception as e:
-        print(
+
+        log(
             f"❌ Discord webhook error: {e}"
         )
 
@@ -187,6 +245,7 @@ async def get_weekend_dates(page):
             await button.inner_text()
         ).strip()
 
+        # Ignore anything that isn't an actual date.
         if not text.isdigit():
             continue
 
@@ -206,13 +265,6 @@ async def get_weekend_dates(page):
 
         date = utc_date + timedelta(days=1)
 
-        is_disabled = await button.is_disabled()
-        aria_disabled = await button.get_attribute(
-            "aria-disabled"
-        )
-        aria_selected = await button.get_attribute(
-            "aria-selected"
-        )
         class_name = await button.get_attribute(
             "class"
         )
@@ -254,6 +306,7 @@ def detect_new_showtimes(previous, current):
             currently_available
             and not previously_available
         ):
+
             new_showtimes.append({
                 "date": date,
                 "day": info["day"],
@@ -268,18 +321,22 @@ def print_status(weekend):
     print()
 
     if not weekend:
-        print(
-            "WARNING: No Friday/Saturday/Sunday "
-            "dates found."
+
+        log(
+            "⚠️ No Friday/Saturday/Sunday dates found."
         )
+
         return
 
     for date, info in weekend.items():
 
         if info["available"]:
+
             symbol = "✅"
             status = "SHOWTIMES AVAILABLE"
+
         else:
+
             symbol = "❌"
             status = "No showtimes"
 
@@ -295,13 +352,28 @@ def print_new_showtimes(new_showtimes):
     """Print newly released showtimes."""
 
     for showtime in new_showtimes:
+
         log(
             f"🚨 NEW SHOWTIME: "
-            f"{showtime['day']}, {showtime['date']}"
+            f"{showtime['day']}, "
+            f"{showtime['date']}"
         )
 
 
 async def check_site():
+    """
+    Open the IMAX website using a real Chromium browser.
+
+    Chromium remains non-headless because the IMAX site
+    requires the real browser environment for verification.
+
+    The window is positioned off-screen and focus is restored
+    to whatever window the user was using beforehand.
+    """
+
+    # Remember whatever window the user is currently using.
+    previous_window = get_foreground_window()
+
     async with async_playwright() as p:
 
         browser = await p.chromium.launch(
@@ -329,6 +401,13 @@ async def check_site():
 
         page = await context.new_page()
 
+        # Give Windows time to create the Chromium window.
+        await page.wait_for_timeout(500)
+
+        # Immediately return focus to whatever the user
+        # was doing before Chromium launched.
+        restore_focus(previous_window)
+
         try:
 
             response = await page.goto(
@@ -337,22 +416,36 @@ async def check_site():
                 timeout=30_000,
             )
 
+            if response:
 
-            # Give IMAX's JavaScript / verification time to run.
-            await page.wait_for_timeout(5_000)
+                log(
+                    f"HTTP status: "
+                    f"{response.status}"
+                )
+
+            # Give IMAX's JavaScript / verification
+            # time to run.
+            await page.wait_for_timeout(
+                5_000
+            )
 
             calendar = page.locator(
                 '[role="grid"]'
             ).first
 
             try:
+
                 await calendar.wait_for(
                     state="visible",
                     timeout=30_000,
                 )
 
             except Exception:
-                log("❌ Calendar not found. Saving diagnostics.")
+
+                log(
+                    "❌ Calendar not found. "
+                    "Saving diagnostics."
+                )
 
                 await page.screenshot(
                     path="imax_monitor_failure.png",
@@ -366,73 +459,82 @@ async def check_site():
                     "w",
                     encoding="utf-8",
                 ) as f:
+
                     f.write(html)
 
                 return None
 
-
-            weekend = await get_weekend_dates(page)
+            weekend = await get_weekend_dates(
+                page
+            )
 
             return weekend
 
         finally:
+
             await browser.close()
 
-def log(message):
-    """Print a timestamped log message."""
-    now = datetime.now(BOISE_TZ)
-    print(
-        f"[{now.strftime('%Y-%m-%d %I:%M:%S %p')}] "
-        f"{message}"
-    )
 
 async def monitor():
 
-
     while True:
 
-   
-        log("Checking IMAX for new showtimes...")
-       
+        log(
+            "Checking IMAX for new showtimes..."
+        )
 
-        # Reload the previous state from disk every check
+        # Reload the previous state from disk
+        # every check.
         previous = load_state()
-        
+
         try:
 
             weekend = await check_site()
 
             if weekend is None:
-                 log("❌ IMAX check failed. Previous state preserved.")
+
+                log(
+                    "❌ IMAX check failed. "
+                    "Previous state preserved."
+                )
 
             else:
 
-                # print_status(weekend)
-
-                new_showtimes = detect_new_showtimes(
-                    previous,
-                    weekend
+                new_showtimes = (
+                    detect_new_showtimes(
+                        previous,
+                        weekend
+                    )
                 )
 
                 if new_showtimes:
 
+                    print_new_showtimes(
+                        new_showtimes
+                    )
 
-                    # Send Discord notification
                     await notify_discord(
                         new_showtimes
                     )
 
-                save_state(weekend)
+                save_state(
+                    weekend
+                )
 
-                previous = weekend
-
-                log("✅ IMAX check successful.")
+                log(
+                    "✅ IMAX check successful."
+                )
 
         except Exception as e:
 
-            
-            log(f"❌ Error occurred: {e}")
+            log(
+                f"❌ Error occurred: {e}"
+            )
 
+        log(
+            f"Next check in "
+            f"{CHECK_INTERVAL_MINUTES} minutes."
+        )
 
         await asyncio.sleep(
             CHECK_INTERVAL_MINUTES * 60
@@ -440,5 +542,8 @@ async def monitor():
 
 
 if __name__ == "__main__":
-    asyncio.run(monitor())
+
+    asyncio.run(
+        monitor()
+    )
 

@@ -168,7 +168,7 @@ async def get_weekend_dates(page):
 
     await calendar.wait_for(
         state="visible",
-        timeout=10_000
+        timeout=30_000
     )
 
     buttons = calendar.locator(
@@ -334,7 +334,7 @@ async def check_site():
             response = await page.goto(
                 URL,
                 wait_until="domcontentloaded",
-                timeout=CHECK_INTERVAL_MINUTES * 1000,
+                timeout=30_000,
             )
 
 

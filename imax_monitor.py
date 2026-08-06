@@ -11,20 +11,43 @@ from urllib.error import HTTPError, URLError
 from dotenv import load_dotenv
 from playwright.async_api import async_playwright
 
-load_dotenv()  # Load environment variables from .env file
+
+load_dotenv()
+
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
 
 URL = "https://www.imax.com/theatre/regal-edwards-boise-imax"
 
-# Check every 10 minutes for new showtimes.
-CHECK_INTERVAL_MINUTES = 10
+# Movie to monitor.
+#
+# This must match the movie's alt text on the IMAX website.
+#
+# Examples:
+#   "The Odyssey"
+#   "Spider-Man: Brand New Day"
+#   "Ghost: 2 Big to Rig"
+#
+MOVIE_TITLE = "Spider-Man: Brand New Day"
 
-STATE_FILE = "imax_state.json"
+# Check every 10 minutes for new showtimes.
+CHECK_INTERVAL_MINUTES = 1
+
+STATE_FILE = f"{MOVIE_TITLE.replace(' ', '_').replace(':', '')}_imax_state.json"
 
 BOISE_TZ = ZoneInfo("America/Boise")
 
 # Discord webhook URL
-DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
+DISCORD_WEBHOOK_URL = os.getenv(
+    "DISCORD_WEBHOOK_URL"
+)
 
+
+# ============================================================
+# LOGGING
+# ============================================================
 
 def log(message):
     """Print a timestamped log message."""
@@ -37,12 +60,16 @@ def log(message):
     )
 
 
+# ============================================================
+# WINDOWS FOCUS MANAGEMENT
+# ============================================================
+
 def get_foreground_window():
     """
     Get the Windows window that currently has focus.
 
-    This is used so Chromium can run without stealing
-    focus from whatever the user is currently doing.
+    This allows Chromium to run without stealing focus
+    from whatever the user is currently doing.
     """
 
     return ctypes.windll.user32.GetForegroundWindow()
@@ -55,8 +82,14 @@ def restore_focus(hwnd):
     """
 
     if hwnd:
-        ctypes.windll.user32.SetForegroundWindow(hwnd)
+        ctypes.windll.user32.SetForegroundWindow(
+            hwnd
+        )
 
+
+# ============================================================
+# STATE
+# ============================================================
 
 def load_state():
     """Load the previously detected showtime state."""
@@ -66,19 +99,33 @@ def load_state():
 
     try:
 
-        with open(STATE_FILE, "r") as f:
+        with open(
+            STATE_FILE,
+            "r"
+        ) as f:
+
             return json.load(f)
 
-    except (json.JSONDecodeError, OSError):
+    except (
+        json.JSONDecodeError,
+        OSError
+    ):
 
-        log("⚠️ Could not read state file.")
+        log(
+            "⚠️ Could not read state file."
+        )
+
         return {}
 
 
 def save_state(state):
     """Save the current showtime state."""
 
-    with open(STATE_FILE, "w") as f:
+    with open(
+        STATE_FILE,
+        "w"
+    ) as f:
+
         json.dump(
             state,
             f,
@@ -86,7 +133,13 @@ def save_state(state):
         )
 
 
-def send_discord_notification(new_showtimes):
+# ============================================================
+# DISCORD
+# ============================================================
+
+def send_discord_notification(
+    new_showtimes
+):
     """
     Send a Discord webhook notification for newly
     released showtimes.
@@ -109,12 +162,14 @@ def send_discord_notification(new_showtimes):
     lines = [
         "🚨 **NEW IMAX SHOWTIMES RELEASED!** 🚨",
         "",
+        f"🎬 **{MOVIE_TITLE}**",
+        "",
     ]
 
     for showtime in new_showtimes:
 
         lines.append(
-            f"🎬 **{showtime['day']}, "
+            f"📅 **{showtime['day']}, "
             f"{showtime['date']}**"
         )
 
@@ -185,7 +240,9 @@ def send_discord_notification(new_showtimes):
         )
 
 
-async def notify_discord(new_showtimes):
+async def notify_discord(
+    new_showtimes
+):
     """
     Send Discord notification without blocking
     the asyncio event loop.
@@ -197,10 +254,153 @@ async def notify_discord(new_showtimes):
     )
 
 
+# ============================================================
+# MOVIE SELECTION
+# ============================================================
+
+async def select_movie(page):
+    """
+    Find and select the configured movie.
+
+    The IMAX page displays movies in a carousel and normally
+    selects the first movie automatically. This function
+    explicitly selects the requested movie before checking
+    the calendar.
+    """
+
+    log(
+        f"🎬 Selecting movie: {MOVIE_TITLE}"
+    )
+
+    # Find the movie image by its alt text.
+    movie_image = page.locator(
+        f'img[alt="{MOVIE_TITLE}"]'
+    ).first
+
+    try:
+
+        await movie_image.wait_for(
+            state="visible",
+            timeout=30_000
+        )
+
+    except Exception:
+
+        log(
+            f"❌ Movie not found: {MOVIE_TITLE}"
+        )
+
+        # Show the movies currently available.
+        movies = page.locator(
+            '[data-testid="movie-card"] img[alt]'
+        )
+
+        count = await movies.count()
+
+        if count:
+
+            log("Movies currently available:")
+
+            for i in range(count):
+
+                alt = await movies.nth(i).get_attribute(
+                    "alt"
+                )
+
+                log(
+                    f"   • {alt}"
+                )
+
+        return False
+
+    # The structure is:
+    #
+    # swiper-slide
+    #   └── slideContentContainer
+    #       └── imageContainer
+    #           └── img
+    #
+    # Find the slide containing our movie.
+    movie_slide = movie_image.locator(
+        "xpath=ancestor::div[contains(@class, "
+        "'swiper-slide')]"
+    ).first
+
+    await movie_slide.wait_for(
+        state="visible",
+        timeout=10_000
+    )
+
+    # Get the slide's current class so we can determine
+    # whether it is already selected.
+    slide_content = movie_slide.locator(
+        'div[data-testid="movie-card"]'
+    ).locator(
+        "xpath=.."
+    ).first
+
+    # Click the slide content rather than the image.
+    #
+    # force=True is intentional here. The IMAX carousel
+    # has overlay elements that Playwright's normal hit
+    # testing considers to be intercepting the click.
+    await slide_content.click(
+        force=True
+    )
+
+    log(
+        f"🖱️ Clicked '{MOVIE_TITLE}'"
+    )
+
+    # Give React/Next.js time to update the selected movie
+    # and reload the corresponding calendar.
+    await page.wait_for_timeout(
+        2_000
+    )
+
+    # Verify that the requested movie is now selected.
+    selected = movie_slide.locator(
+        "div.movies-carousel-module-scss-module__"
+        "EtTL9G__slideContentContainer."
+        "movies-carousel-module-scss-module__"
+        "EtTL9G__selected"
+    )
+
+    try:
+
+        await selected.wait_for(
+            state="attached",
+            timeout=5_000
+        )
+
+        log(
+            f"✅ Selected movie: {MOVIE_TITLE}"
+        )
+
+    except Exception:
+
+        # The generated CSS class can change, so don't
+        # consider this a failure if the calendar itself
+        # updates correctly.
+        log(
+            f"✅ Clicked movie: {MOVIE_TITLE}"
+        )
+
+    return True
+
+
+
+# ============================================================
+# CALENDAR
+# ============================================================
+
 async def get_weekend_dates(page):
     """
     Find Friday, Saturday, and Sunday currently shown
     in the IMAX calendar.
+
+    The movie must already have been selected before
+    this function is called.
 
     Returns:
 
@@ -263,11 +463,19 @@ async def get_weekend_dates(page):
             BOISE_TZ
         ).date()
 
-        date = utc_date + timedelta(days=1)
+        # The IMAX timestamp appears to represent the
+        # previous local date, so preserve the existing
+        # +1 day behavior.
+        date = utc_date + timedelta(
+            days=1
+        )
 
         class_name = await button.get_attribute(
             "class"
         )
+
+        if not class_name:
+            class_name = ""
 
         results[str(date)] = {
             "available": (
@@ -279,7 +487,14 @@ async def get_weekend_dates(page):
     return results
 
 
-def detect_new_showtimes(previous, current):
+# ============================================================
+# SHOWTIME DETECTION
+# ============================================================
+
+def detect_new_showtimes(
+    previous,
+    current
+):
     """
     Compare the previous state to the current state.
 
@@ -292,14 +507,14 @@ def detect_new_showtimes(previous, current):
 
     for date, info in current.items():
 
-        currently_available = info["available"]
+        currently_available = (
+            info["available"]
+        )
 
-        previously_available = previous.get(
-            date,
-            {}
-        ).get(
-            "available",
-            False
+        previously_available = (
+            previous
+            .get(date, {})
+            .get("available", False)
         )
 
         if (
@@ -323,7 +538,8 @@ def print_status(weekend):
     if not weekend:
 
         log(
-            "⚠️ No Friday/Saturday/Sunday dates found."
+            "⚠️ No Friday/Saturday/Sunday "
+            "dates found."
         )
 
         return
@@ -348,7 +564,9 @@ def print_status(weekend):
         )
 
 
-def print_new_showtimes(new_showtimes):
+def print_new_showtimes(
+    new_showtimes
+):
     """Print newly released showtimes."""
 
     for showtime in new_showtimes:
@@ -360,6 +578,10 @@ def print_new_showtimes(new_showtimes):
         )
 
 
+# ============================================================
+# WEBSITE CHECK
+# ============================================================
+
 async def check_site():
     """
     Open the IMAX website using a real Chromium browser.
@@ -369,10 +591,15 @@ async def check_site():
 
     The window is positioned off-screen and focus is restored
     to whatever window the user was using beforehand.
+
+    The requested movie is selected before the calendar
+    is inspected.
     """
 
     # Remember whatever window the user is currently using.
-    previous_window = get_foreground_window()
+    previous_window = (
+        get_foreground_window()
+    )
 
     async with async_playwright() as p:
 
@@ -402,13 +629,20 @@ async def check_site():
         page = await context.new_page()
 
         # Give Windows time to create the Chromium window.
-        await page.wait_for_timeout(500)
+        await page.wait_for_timeout(
+            500
+        )
 
-        # Immediately return focus to whatever the user
-        # was doing before Chromium launched.
-        restore_focus(previous_window)
+        # Return focus to whatever the user was doing.
+        restore_focus(
+            previous_window
+        )
 
         try:
+
+            log(
+                "Opening IMAX..."
+            )
 
             response = await page.goto(
                 URL,
@@ -427,6 +661,30 @@ async def check_site():
             # time to run.
             await page.wait_for_timeout(
                 5_000
+            )
+
+            # ------------------------------------------------
+            # SELECT MOVIE
+            # ------------------------------------------------
+
+            movie_selected = (
+                await select_movie(page)
+            )
+
+            if not movie_selected:
+
+                log(
+                    "❌ Could not select movie."
+                )
+
+                return None
+
+            # ------------------------------------------------
+            # CHECK CALENDAR
+            # ------------------------------------------------
+
+            log(
+                "Checking calendar..."
             )
 
             calendar = page.locator(
@@ -464,8 +722,10 @@ async def check_site():
 
                 return None
 
-            weekend = await get_weekend_dates(
-                page
+            weekend = (
+                await get_weekend_dates(
+                    page
+                )
             )
 
             return weekend
@@ -475,12 +735,17 @@ async def check_site():
             await browser.close()
 
 
+# ============================================================
+# MAIN MONITOR
+# ============================================================
+
 async def monitor():
 
     while True:
 
         log(
-            "Checking IMAX for new showtimes..."
+            f"Checking IMAX for "
+            f"'{MOVIE_TITLE}'..."
         )
 
         # Reload the previous state from disk
@@ -500,6 +765,10 @@ async def monitor():
 
             else:
 
+                print_status(
+                    weekend
+                )
+
                 new_showtimes = (
                     detect_new_showtimes(
                         previous,
@@ -517,6 +786,13 @@ async def monitor():
                         new_showtimes
                     )
 
+                else:
+
+                    log(
+                        "No new showtimes."
+                    )
+
+                # Only save a successful check.
                 save_state(
                     weekend
                 )
@@ -540,6 +816,10 @@ async def monitor():
             CHECK_INTERVAL_MINUTES * 60
         )
 
+
+# ============================================================
+# ENTRY POINT
+# ============================================================
 
 if __name__ == "__main__":
 

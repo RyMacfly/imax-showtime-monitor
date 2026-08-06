@@ -102,7 +102,7 @@ def send_discord_notification(new_showtimes):
     try:
         with urlopen(request, timeout=10) as response:
             if 200 <= response.status < 300:
-                print("✅ Discord notification sent!")
+                log("✅ Discord notification sent!")
             else:
                 print(
                     f"⚠️ Discord webhook returned "
@@ -292,22 +292,13 @@ def print_status(weekend):
 
 
 def print_new_showtimes(new_showtimes):
-    """Print a prominent alert for newly released dates."""
+    """Print newly released showtimes."""
 
     for showtime in new_showtimes:
-
-        print()
-        print("!" * 60)
-        print("🚨 NEW SHOWTIMES RELEASED 🚨")
-        print("!" * 60)
-        print()
-        print(
-            f"{showtime['day']}, "
-            f"{showtime['date']}"
+        log(
+            f"🚨 NEW SHOWTIME: "
+            f"{showtime['day']}, {showtime['date']}"
         )
-        print()
-        print(URL)
-        print()
 
 
 async def check_site():
@@ -339,7 +330,6 @@ async def check_site():
         page = await context.new_page()
 
         try:
-            print("Opening IMAX...")
 
             response = await page.goto(
                 URL,
@@ -347,10 +337,6 @@ async def check_site():
                 timeout=CHECK_INTERVAL_MINUTES * 1000,
             )
 
-            print(
-                f"HTTP status: "
-                f"{response.status if response else 'unknown'}"
-            )
 
             # Give IMAX's JavaScript / verification time to run.
             await page.wait_for_timeout(5_000)
@@ -366,8 +352,7 @@ async def check_site():
                 )
 
             except Exception:
-                print("Calendar not found.")
-                print("Saving diagnostic files...")
+                log("❌ Calendar not found. Saving diagnostics.")
 
                 await page.screenshot(
                     path="imax_monitor_failure.png",
@@ -385,7 +370,6 @@ async def check_site():
 
                 return None
 
-            print("Calendar found!")
 
             weekend = await get_weekend_dates(page)
 
@@ -394,15 +378,22 @@ async def check_site():
         finally:
             await browser.close()
 
+def log(message):
+    """Print a timestamped log message."""
+    now = datetime.now(BOISE_TZ)
+    print(
+        f"[{now.strftime('%Y-%m-%d %I:%M:%S %p')}] "
+        f"{message}"
+    )
 
 async def monitor():
 
 
     while True:
 
-        print("=" * 60)
-        print("CHECKING IMAX")
-        print("=" * 60)
+   
+        log("Checking IMAX for new showtimes...")
+       
 
         # Reload the previous state from disk every check
         previous = load_state()
@@ -412,12 +403,11 @@ async def monitor():
             weekend = await check_site()
 
             if weekend is None:
-                print("IMAX check failed.")
-                print("Previous state will be preserved.")
+                 log("❌ IMAX check failed. Previous state preserved.")
 
             else:
 
-                print_status(weekend)
+                # print_status(weekend)
 
                 new_showtimes = detect_new_showtimes(
                     previous,
@@ -426,9 +416,6 @@ async def monitor():
 
                 if new_showtimes:
 
-                    print_new_showtimes(
-                        new_showtimes
-                    )
 
                     # Send Discord notification
                     await notify_discord(
@@ -439,20 +426,13 @@ async def monitor():
 
                 previous = weekend
 
-                print()
-                print("IMAX check successful.")
+                log("✅ IMAX check successful.")
 
         except Exception as e:
 
-            print("=" * 60)
-            print("ERROR CHECKING IMAX")
-            print("=" * 60)
-            print(e)
+            
+            log(f"❌ Error occurred: {e}")
 
-        print(
-            f"\nRetrying in "
-            f"{CHECK_INTERVAL_MINUTES} minutes..."
-        )
 
         await asyncio.sleep(
             CHECK_INTERVAL_MINUTES * 60

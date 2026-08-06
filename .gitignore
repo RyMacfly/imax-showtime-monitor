@@ -1,3 +1,4 @@
 .env
 imax_state.json
 run_monitor.bat
+__pycache__/**/*

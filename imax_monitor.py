@@ -2,11 +2,15 @@
 import asyncio
 import json
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 
+from dotenv import load_dotenv
 from playwright.async_api import async_playwright
 
+load_dotenv()  # Load environment variables from .env file
 
 URL = "https://www.imax.com/theatre/regal-edwards-boise-imax"
 
@@ -14,8 +18,11 @@ URL = "https://www.imax.com/theatre/regal-edwards-boise-imax"
 CHECK_INTERVAL = 60
 
 STATE_FILE = "imax_state.json"
-
+ 
 BOISE_TZ = ZoneInfo("America/Boise")
+
+# Discord webhook URL
+DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
 
 def load_state():
@@ -38,6 +45,96 @@ def save_state(state):
 
     with open(STATE_FILE, "w") as f:
         json.dump(state, f, indent=2)
+
+
+def send_discord_notification(new_showtimes):
+    """
+    Send a Discord webhook notification for newly released showtimes.
+
+    This runs in a background thread so it doesn't block
+    the asyncio event loop.
+    """
+
+    if not DISCORD_WEBHOOK_URL:
+        print("Warning: DISCORD_WEBHOOK_URL is not set.")
+        return
+
+    if not new_showtimes:
+        return
+
+    # Build the Discord message.
+    lines = [
+        "🚨 **NEW IMAX SHOWTIMES RELEASED!** 🚨",
+        "",
+    ]
+
+    for showtime in new_showtimes:
+        lines.append(
+            f"🎬 **{showtime['day']}, {showtime['date']}**"
+        )
+
+    lines.extend([
+        "",
+        f"🔗 {URL}",
+    ])
+
+    message = "\n".join(lines)
+
+    payload = {
+        "content": message,
+        "username": "IMAX Showtime Monitor",
+    }
+
+    data = json.dumps(payload).encode("utf-8")
+
+    request = Request(
+        DISCORD_WEBHOOK_URL,
+        data=data,
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "IMAX Showtime Monitor",
+        },
+        method="POST",
+    )
+
+    try:
+        with urlopen(request, timeout=10) as response:
+            if 200 <= response.status < 300:
+                print("✅ Discord notification sent!")
+            else:
+                print(
+                    f"⚠️ Discord webhook returned "
+                    f"HTTP {response.status}"
+                )
+
+    except HTTPError as e:
+        print(
+            f"❌ Discord webhook HTTP error: "
+            f"{e.code} {e.reason}"
+        )
+
+    except URLError as e:
+        print(
+            f"❌ Discord webhook connection error: "
+            f"{e.reason}"
+        )
+
+    except Exception as e:
+        print(
+            f"❌ Discord webhook error: {e}"
+        )
+
+
+async def notify_discord(new_showtimes):
+    """
+    Send Discord notification without blocking
+    the asyncio event loop.
+    """
+
+    await asyncio.to_thread(
+        send_discord_notification,
+        new_showtimes
+    )
 
 
 async def get_weekend_dates(page):
@@ -63,7 +160,6 @@ async def get_weekend_dates(page):
     }
     """
 
-    # This selector was verified by the live-site test.
     calendar = page.locator(
         '[role="grid"]'
     ).first
@@ -73,8 +169,6 @@ async def get_weekend_dates(page):
         timeout=10_000
     )
 
-    # Use semantic attributes rather than Material UI's
-    # generated css-xxxxx classes.
     buttons = calendar.locator(
         'button[role="gridcell"][data-timestamp]'
     )
@@ -91,7 +185,6 @@ async def get_weekend_dates(page):
             await button.inner_text()
         ).strip()
 
-        # Ignore anything that isn't an actual date.
         if not text.isdigit():
             continue
 
@@ -102,8 +195,6 @@ async def get_weekend_dates(page):
         if not timestamp:
             continue
 
-        # Convert JavaScript timestamp from milliseconds
-        # to seconds.
         timestamp_ms = int(timestamp)
 
         utc_date = datetime.fromtimestamp(
@@ -113,47 +204,23 @@ async def get_weekend_dates(page):
 
         date = utc_date + timedelta(days=1)
 
-        # Python weekday:
-        #
-        # Monday    = 0
-        # Tuesday   = 1
-        # Wednesday = 2
-        # Thursday  = 3
-        # Friday    = 4
-        # Saturday  = 5
-        # Sunday    = 6
-        #
-        
-
         is_disabled = await button.is_disabled()
-        aria_disabled = await button.get_attribute("aria-disabled")
-        aria_selected = await button.get_attribute("aria-selected")
-        class_name = await button.get_attribute("class")
-
-        # print(
-        #     f"\nDATE: {date}"
-        # )
-        # print(
-        #     f"  text:          {text!r}"
-        # )
-        # print(
-        #     f"  is_disabled:   {is_disabled}"
-        # )
-        # print(
-        #     f"  aria-disabled: {aria_disabled}"
-        # )
-        # print(
-        #     f"  aria-selected: {aria_selected}"
-        # )
-        # print(
-        #     f"  class:         {class_name}"
-        # )
+        aria_disabled = await button.get_attribute(
+            "aria-disabled"
+        )
+        aria_selected = await button.get_attribute(
+            "aria-selected"
+        )
+        class_name = await button.get_attribute(
+            "class"
+        )
 
         results[str(date)] = {
-            "available": "Mui-disabled" not in class_name,
+            "available": (
+                "Mui-disabled" not in class_name
+            ),
             "day": date.strftime("%A"),
         }
-        
 
     return results
 
@@ -196,7 +263,10 @@ def print_status(weekend):
     print()
 
     if not weekend:
-        print("WARNING: No Friday/Saturday/Sunday dates found.")
+        print(
+            "WARNING: No Friday/Saturday/Sunday "
+            "dates found."
+        )
         return
 
     for date, info in weekend.items():
@@ -233,7 +303,6 @@ def print_new_showtimes(new_showtimes):
         print()
         print(URL)
         print()
-
 
 
 async def check_site():
@@ -311,14 +380,14 @@ async def check_site():
 
             print("Calendar found!")
 
-            # Now use your actual weekend extraction logic.
             weekend = await get_weekend_dates(page)
 
             return weekend
 
         finally:
             await browser.close()
-            
+
+
 async def monitor():
 
     previous = load_state()
@@ -347,7 +416,13 @@ async def monitor():
                 )
 
                 if new_showtimes:
+
                     print_new_showtimes(
+                        new_showtimes
+                    )
+
+                    # Send Discord notification
+                    await notify_discord(
                         new_showtimes
                     )
 
@@ -373,8 +448,6 @@ async def monitor():
         await asyncio.sleep(
             CHECK_INTERVAL
         )
-
-
 
 
 if __name__ == "__main__":

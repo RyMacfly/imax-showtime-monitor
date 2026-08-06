@@ -14,8 +14,11 @@ load_dotenv()  # Load environment variables from .env file
 
 URL = "https://www.imax.com/theatre/regal-edwards-boise-imax"
 
-# Check every 60 seconds
-CHECK_INTERVAL = 60
+# Check every 15 minutes for new showtimes. This is a balance between
+# being responsive to new showtimes and not overloading the IMAX server.
+INTERVAL_MINUTES = 15
+
+CHECK_INTERVAL = 60 * INTERVAL_MINUTES
 
 STATE_FILE = "imax_state.json"
  
@@ -229,7 +232,7 @@ def detect_new_showtimes(previous, current):
     """
     Compare the previous state to the current state.
 
-    Returns a list of dates that changed from:
+    Returns dates that changed from:
 
         unavailable -> available
     """
@@ -242,6 +245,9 @@ def detect_new_showtimes(previous, current):
 
         previously_available = previous.get(
             date,
+            {}
+        ).get(
+            "available",
             False
         )
 
@@ -392,7 +398,6 @@ async def check_site():
 
 async def monitor():
 
-    previous = load_state()
 
     while True:
 
@@ -400,6 +405,9 @@ async def monitor():
         print("CHECKING IMAX")
         print("=" * 60)
 
+        # Reload the previous state from disk every check
+        previous = load_state()
+        
         try:
 
             weekend = await check_site()

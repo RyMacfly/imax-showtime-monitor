@@ -3,6 +3,8 @@ import asyncio
 import ctypes
 import json
 import os
+import platform
+import subprocess
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from urllib.request import Request, urlopen
@@ -52,9 +54,26 @@ def log(message):
 # ============================================================
 
 def get_foreground_window():
-    """Get the Windows window that currently has focus."""
+    """Get the window that currently has focus."""
 
-    return ctypes.windll.user32.GetForegroundWindow()
+    system = platform.system()
+
+    if system == "Windows":
+        return ctypes.windll.user32.GetForegroundWindow()
+
+    elif system == "Linux":
+        try:
+            result = subprocess.run(
+                ["xdotool", "getactivewindow"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            return int(result.stdout.strip())
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return None
+
+    return None
 
 
 def restore_focus(hwnd):
@@ -151,7 +170,7 @@ def send_discord_notification(new_showtimes):
     if not DISCORD_WEBHOOK_URL:
 
         log(
-            "⚠️ DISCORD_WEBHOOK_URL is not set."
+            "⚠️  DISCORD_WEBHOOK_URL is not set."
         )
 
         return

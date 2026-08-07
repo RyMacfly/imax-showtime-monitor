@@ -1,4 +1,5 @@
 
+import argparse
 import asyncio
 import ctypes
 import json
@@ -318,12 +319,24 @@ async def get_movies(page):
     return movies
 
 
-async def choose_movies(page):
+async def choose_movies(page, args):
     """
-    Let the user choose between:
+    Determine which movies should be monitored.
 
-        1. Monitoring one movie
-        A. Dynamically monitoring all movies
+    Supported modes:
+
+        --all
+            Dynamically monitor every movie currently listed.
+            Newly added movies are automatically detected and monitored.
+
+        --movie "Movie Title"
+            Monitor one specific movie.
+
+        --movies "Movie 1" "Movie 2"
+            Monitor multiple specific movies.
+
+        No arguments
+            Show an interactive menu.
 
     Returns:
 
@@ -335,56 +348,112 @@ async def choose_movies(page):
     or:
 
         {
-            "mode": "single",
+            "mode": "selected",
             "movies": [...]
         }
     """
 
-    log(
-        "Finding available IMAX movies..."
-    )
+    log("Finding available IMAX movies...")
 
-    await page.wait_for_timeout(
-        2_000
-    )
+    await page.wait_for_timeout(2_000)
 
     movies = await get_movies(page)
 
     if not movies:
-
         raise RuntimeError(
             "No movies were found in the IMAX carousel."
         )
+
+    # ------------------------------------------------------------
+    # --all
+    # ------------------------------------------------------------
+
+    if args.all:
+        log(
+            f"🎬 Dynamic all-movie monitoring enabled "
+            f"({len(movies)} movies currently listed)."
+        )
+
+        return {
+            "mode": "all",
+            "movies": movies,
+        }
+
+    # ------------------------------------------------------------
+    # --movie
+    # ------------------------------------------------------------
+
+    if args.movie:
+        if args.movie not in movies:
+            raise ValueError(
+                f"Movie not found: {args.movie}\n"
+                f"Available movies: {', '.join(movies)}"
+            )
+
+        log(f"🎬 Monitoring only: {args.movie}")
+
+        return {
+            "mode": "selected",
+            "movies": [args.movie],
+        }
+
+    # ------------------------------------------------------------
+    # --movies
+    # ------------------------------------------------------------
+
+    if args.movies:
+        invalid = [
+            movie
+            for movie in args.movies
+            if movie not in movies
+        ]
+
+        if invalid:
+            raise ValueError(
+                "The following movies were not found:\n"
+                + "\n".join(f"  - {movie}" for movie in invalid)
+                + "\n\nAvailable movies:\n"
+                + "\n".join(f"  - {movie}" for movie in movies)
+            )
+
+        # Remove duplicates while preserving order.
+        selected = list(dict.fromkeys(args.movies))
+
+        log(
+            f"🎬 Monitoring {len(selected)} selected movie(s):"
+        )
+
+        for movie in selected:
+            log(f"   • {movie}")
+
+        return {
+            "mode": "selected",
+            "movies": selected,
+        }
+
+    # ------------------------------------------------------------
+    # No arguments → interactive mode
+    # ------------------------------------------------------------
 
     print()
     print("=" * 60)
     print("AVAILABLE IMAX MOVIES")
     print("=" * 60)
 
-    for i, movie in enumerate(
-        movies,
-        start=1
-    ):
-
-        print(
-            f"{i}. {movie}"
-        )
+    for i, movie in enumerate(movies, start=1):
+        print(f"{i}. {movie}")
 
     print()
-    print(
-        "A. Check all movies "
-        "(automatically detect additions/removals)"
-    )
+    print("A. Check all movies")
+    print("You can select multiple movies, e.g. 1 3 5")
     print()
 
     while True:
-
         choice = input(
-            "Select a movie number or A for all: "
+            "Select movie(s), or A for all: "
         ).strip().lower()
 
         if choice == "a":
-
             log(
                 f"🎬 Dynamic all-movie monitoring enabled "
                 f"({len(movies)} movies currently listed)."
@@ -396,29 +465,45 @@ async def choose_movies(page):
             }
 
         try:
+            indexes = [
+                int(value) - 1
+                for value in choice.split()
+            ]
 
-            index = int(choice) - 1
+            if not indexes:
+                raise ValueError
 
-            if 0 <= index < len(movies):
+            if not all(
+                0 <= index < len(movies)
+                for index in indexes
+            ):
+                raise ValueError
 
-                selected = movies[index]
+            # Remove duplicate selections while preserving order.
+            indexes = list(dict.fromkeys(indexes))
 
-                log(
-                    f"🎬 Monitoring only: {selected}"
-                )
+            selected = [
+                movies[index]
+                for index in indexes
+            ]
 
-                return {
-                    "mode": "single",
-                    "movies": [selected],
-                }
+            log(
+                f"🎬 Monitoring {len(selected)} selected movie(s):"
+            )
+
+            for movie in selected:
+                log(f"   • {movie}")
+
+            return {
+                "mode": "selected",
+                "movies": selected,
+            }
 
         except ValueError:
-            pass
-
-        print(
-            "⚠️ Invalid selection. "
-            "Please enter a movie number or A."
-        )
+            print(
+                "⚠️ Invalid selection. "
+                "Enter movie numbers separated by spaces or A."
+            )
 
 
 async def select_movie(page, movie):
@@ -712,10 +797,44 @@ async def refresh_movie_list(page):
 
 
 # ============================================================
+# COMMAND-LINE ARGUMENTS
+# ============================================================
+
+def parse_args():
+    """Parse command-line monitoring options."""
+
+    parser = argparse.ArgumentParser(
+        description="IMAX Showtime Monitor"
+    )
+
+    group = parser.add_mutually_exclusive_group()
+
+    group.add_argument(
+        "--all",
+        action="store_true",
+        help="Monitor all movies dynamically"
+    )
+
+    group.add_argument(
+        "--movie",
+        type=str,
+        help="Monitor one specific movie"
+    )
+
+    group.add_argument(
+        "--movies",
+        nargs="+",
+        help="Monitor multiple specific movies"
+    )
+
+    return parser.parse_args()
+
+
+# ============================================================
 # INITIAL SITE SETUP
 # ============================================================
 
-async def check_site():
+async def check_site(args):
     """
     Open the IMAX site and allow the user to select
     a movie or dynamic all-movie monitoring.
@@ -801,7 +920,7 @@ async def check_site():
             )
 
         monitoring_config = (
-            await choose_movies(page)
+            await choose_movies(page, args)
         )
 
         return (
@@ -824,7 +943,7 @@ async def check_site():
 # MONITOR
 # ============================================================
 
-async def monitor():
+async def monitor(args):
 
     state = load_state()
 
@@ -836,7 +955,7 @@ async def monitor():
             context,
             page,
             monitoring_config
-        ) = await check_site()
+        ) = await check_site(args)
 
     except Exception as e:
 
@@ -1076,10 +1195,12 @@ async def monitor():
 
 if __name__ == "__main__":
 
+    args = parse_args()
+
     try:
 
         asyncio.run(
-            monitor()
+            monitor(args)
         )
 
     except KeyboardInterrupt:
@@ -1089,4 +1210,3 @@ if __name__ == "__main__":
         log(
             "Monitor stopped."
         )
-

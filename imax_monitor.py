@@ -27,6 +27,8 @@ URL = "https://www.imax.com/theatre/regal-edwards-boise-imax"
 CHECK_INTERVAL_MINUTES = 15
 
 STATE_FILE = "imax_state.json"
+CONFIG_FILE = "imax_monitor_config.json"
+STATUS_FILE = "imax_monitor_status.json"
 
 BOISE_TZ = ZoneInfo("America/Boise")
 
@@ -153,6 +155,124 @@ def save_state(state):
             f,
             indent=2
         )
+        
+# ============================================================
+# JSON FILE UTILITIES
+# ============================================================
+        
+def load_json_file(path, default):
+    if not os.path.exists(path):
+        return default
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    except (json.JSONDecodeError, OSError):
+        return default
+
+
+def save_json_file(path, data):
+    temp = path + ".tmp"
+
+    with open(temp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+    os.replace(temp, path)
+
+
+def load_web_config():
+    """
+    Read configuration written by the web UI.
+
+    Returns:
+        {
+            "mode": "all" | "selected",
+            "movies": [...]
+        }
+
+    or None if no valid web configuration exists.
+    """
+
+    config = load_json_file(
+        CONFIG_FILE,
+        None
+    )
+
+    if not config:
+        return None
+
+    mode = config.get("mode")
+    movies = config.get("movies", [])
+
+    if mode not in {"all", "selected"}:
+        return None
+
+    if not isinstance(movies, list):
+        movies = []
+
+    return {
+        "mode": mode,
+        "movies": list(
+            dict.fromkeys(
+                str(movie)
+                for movie in movies
+            )
+        )
+    }
+
+
+def write_web_status(
+    *,
+    running=True,
+    mode=None,
+    selected_movies=None,
+    available_movies=None,
+    showtimes=None,
+    last_check=None,
+    next_check=None,
+    error_message=""
+):
+    """
+    Publish monitor state for the web UI.
+    """
+
+    status = load_json_file(
+        STATUS_FILE,
+        {}
+    )
+
+    status.update({
+        "running": running,
+        "mode": mode,
+        "selected_movies": selected_movies or [],
+        "available_movies": available_movies or [],
+        "showtimes": showtimes or {},
+        "last_check": last_check,
+        "next_check": next_check,
+        "error_message": error_message,
+        "last_update": datetime.now(
+            BOISE_TZ
+        ).isoformat(),
+    })
+
+    save_json_file(
+        STATUS_FILE,
+        status
+    )
+
+
+def get_check_now_token():
+    """
+    Used by the web UI to request an immediate check.
+    """
+
+    status = load_json_file(
+        STATUS_FILE,
+        {}
+    )
+
+    return status.get("check_now")
 
 
 # ============================================================
@@ -947,6 +1067,27 @@ async def monitor(args):
 
     state = load_state()
 
+    # If the web UI already has a configuration,
+    # use it when no CLI movie-selection argument was supplied.
+    web_config = load_web_config()
+
+    if web_config and not (
+        args.all
+        or args.movie
+        or args.movies
+    ):
+        args.all = (
+            web_config["mode"] == "all"
+        )
+
+        args.movie = None
+
+        args.movies = (
+            web_config["movies"]
+            if web_config["mode"] == "selected"
+            else None
+        )
+
     try:
 
         (
@@ -983,13 +1124,75 @@ async def monitor(args):
     )
 
     # This is used only in all mode.
+    # All movies currently known to exist on IMAX.
+    available_movies = (
+        await get_movies(page)
+    )
+
+    # Movies currently being monitored.
+    selected_movies = (
+        monitoring_config["movies"]
+    )
+
+    # Used to detect movies being added/removed.
     previous_movie_list = (
-        selected_movies.copy()
+        available_movies.copy()
+    )
+
+    write_web_status(
+        running=True,
+        mode=mode,
+        selected_movies=selected_movies,
+        available_movies=available_movies,
+        showtimes={},
+        last_check=None,
+        next_check=None,
     )
 
     try:
 
         while True:
+
+            # ========================================================
+            # CHECK FOR WEB UI CONFIGURATION CHANGES
+            # ========================================================
+
+            web_config = load_web_config()
+
+            if web_config:
+
+                requested_mode = web_config["mode"]
+                requested_movies = web_config["movies"]
+
+                config_changed = (
+                    requested_mode != mode
+                )
+
+                if requested_mode == "selected":
+                    config_changed = (
+                        config_changed
+                        or requested_movies != selected_movies
+                    )
+
+                if config_changed:
+
+                    mode = requested_mode
+
+                    if mode == "selected":
+                        selected_movies = (
+                            requested_movies.copy()
+                        )
+
+                    log(
+                        f"🌐 Web UI changed monitoring "
+                        f"mode to {mode} "
+                        f"({len(selected_movies)} movie(s))."
+                    )
+
+                    if mode == "all":
+                        previous_movie_list = (
+                            selected_movies.copy()
+                        )
 
             cycle_start = datetime.now(
                 BOISE_TZ
@@ -1003,6 +1206,27 @@ async def monitor(args):
             # ------------------------------------------------
 
             if mode == "all":
+                
+                write_web_status(
+                    running=True,
+                    mode=mode,
+                    selected_movies=selected_movies,
+                    available_movies=available_movies,
+                    showtimes=load_json_file(
+                        STATUS_FILE,
+                        {}
+                    ).get(
+                        "showtimes",
+                        {}
+                    ),
+                    last_check=load_json_file(
+                        STATUS_FILE,
+                        {}
+                    ).get(
+                        "last_check"
+                    ),
+                    next_check=None,
+                )
 
                 try:
 
@@ -1038,13 +1262,14 @@ async def monitor(args):
                                 f"{movie}"
                             )
 
-                    selected_movies = (
-                        current_movies
-                    )
+                    available_movies = previous_movie_list
 
-                    previous_movie_list = (
-                        current_movies.copy()
-                    )
+                    previous_movie_list = current_movies.copy()
+
+                    # Only automatically select everything when
+                    # we are genuinely operating in ALL mode.
+                    if mode == "all":
+                        selected_movies = current_movies.copy()
 
                 except Exception as e:
 
@@ -1071,6 +1296,16 @@ async def monitor(args):
             )
 
             checked = 0
+            
+            old_status = load_json_file(
+                STATUS_FILE,
+                {}
+            )
+
+            web_showtimes = old_status.get(
+                "showtimes",
+                {}
+            )
 
             for movie in selected_movies:
 
@@ -1109,6 +1344,16 @@ async def monitor(args):
                         state
                     )
 
+                    # Publish calendar information to the web UI.
+                    web_showtimes[movie] = [
+                        {
+                            "date": date,
+                            "day": info["day"],
+                            "available": info["available"],
+                        }
+                        for date, info in weekend.items()
+                    ]
+
                     checked += 1
 
                 except Exception as e:
@@ -1118,7 +1363,39 @@ async def monitor(args):
                     log(
                         f"❌ {movie}: {e}"
                     )
+            # ========================================================
+            # UPDATE WEB UI STATUS
+            # ========================================================
 
+            last_check = datetime.now(
+                BOISE_TZ
+            )
+
+            next_check = (
+                last_check
+                + timedelta(
+                    minutes=CHECK_INTERVAL_MINUTES
+                )
+            )
+
+            write_web_status(
+                running=True,
+                mode=mode,
+                selected_movies=selected_movies,
+                available_movies=(
+                    selected_movies
+                    if mode == "selected"
+                    else previous_movie_list
+                ),
+                showtimes=web_showtimes,
+                last_check=last_check.isoformat(),
+                next_check=next_check.isoformat(),
+                error_message=(
+                    ""
+                    if errors == 0
+                    else f"{errors} error(s)"
+                ),
+            )
             # ------------------------------------------------
             # DISCORD NOTIFICATIONS
             # ------------------------------------------------
@@ -1175,9 +1452,67 @@ async def monitor(args):
                 f"{CHECK_INTERVAL_MINUTES} minutes."
             )
 
-            await asyncio.sleep(
-                CHECK_INTERVAL_MINUTES * 60
+            expected_check_now = (
+                get_check_now_token()
             )
+
+            wait_until = (
+                datetime.now(BOISE_TZ)
+                + timedelta(
+                    minutes=CHECK_INTERVAL_MINUTES
+                )
+            )
+
+            while datetime.now(BOISE_TZ) < wait_until:
+
+                await asyncio.sleep(1)
+
+                # ------------------------------------------------
+                # CHECK NOW
+                # ------------------------------------------------
+
+                if (
+                    get_check_now_token()
+                    != expected_check_now
+                ):
+
+                    log(
+                        "🌐 Web UI requested an immediate check."
+                    )
+
+                    break
+
+                # ------------------------------------------------
+                # CONFIGURATION CHANGE
+                # ------------------------------------------------
+
+                latest_config = (
+                    load_web_config()
+                )
+
+                latest_config = load_web_config()
+
+                if latest_config:
+
+                    config_changed = (
+                        latest_config["mode"] != mode
+                    )
+
+                    # In selected mode, movie changes matter.
+                    if latest_config["mode"] == "selected":
+                        config_changed = (
+                            config_changed
+                            or latest_config["movies"]
+                            != selected_movies
+                        )
+
+                    if config_changed:
+
+                        log(
+                            "🌐 Web UI configuration changed."
+                        )
+
+                        break
 
     finally:
 

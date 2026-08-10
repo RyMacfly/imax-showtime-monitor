@@ -1,6 +1,5 @@
 .env
 *.json
 .venv/
-*.json
 run_monitor.bat
 __pycache__/**/*

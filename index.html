@@ -280,6 +280,423 @@
             text-shadow:
                 0 2px 4px rgba(0, 0, 0, 0.4);
         }
+
+        /* =====================================================
+   SETTINGS MODAL
+   ===================================================== */
+
+        .settings-modal {
+            display: none;
+
+            position: fixed;
+            inset: 0;
+
+            z-index: 1000;
+
+            background: rgba(0, 0, 0, 0.65);
+
+            backdrop-filter: blur(5px);
+
+            align-items: center;
+            justify-content: center;
+
+            padding: 20px;
+        }
+
+        .settings-modal.open {
+            display: flex;
+        }
+
+
+        /* Settings window */
+
+        .settings-window {
+            width: 100%;
+            max-width: 620px;
+
+            max-height: 90vh;
+
+            background: #111;
+
+            border: 1px solid #333;
+
+            border-radius: 14px;
+
+            box-shadow:
+                0 20px 60px rgba(0, 0, 0, 0.55);
+
+            overflow: hidden;
+
+            animation: settingsOpen 0.18s ease-out;
+        }
+
+        @keyframes settingsOpen {
+
+            from {
+                opacity: 0;
+                transform: translateY(10px) scale(0.98);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+
+        }
+
+
+        /* Header */
+
+        .settings-header {
+            display: flex;
+
+            align-items: flex-start;
+            justify-content: space-between;
+
+            padding: 22px 24px;
+
+            border-bottom: 1px solid #2a2a2a;
+        }
+
+        .settings-header h2 {
+            margin: 0 0 5px 0;
+
+            font-size: 20px;
+        }
+
+        .settings-close {
+            width: 47px;
+            height: 47px;
+
+            border: none;
+
+            border-radius: 8px;
+
+            background: transparent;
+
+            color: #aaa;
+
+            font-size: 26px;
+
+            line-height: 1;
+
+            cursor: pointer;
+
+            transition:
+                background 0.15s,
+                color 0.15s;
+        }
+
+        .settings-close:hover {
+            background: #292929;
+            color: white;
+        }
+
+
+        /* Body */
+
+        .settings-body {
+            padding: 24px;
+
+            overflow-y: auto;
+
+            max-height: 60vh;
+        }
+
+
+        /* Individual setting sections */
+
+        .settings-section {
+            padding: 20px 0;
+
+            border-bottom: 1px solid #292929;
+        }
+
+        .settings-section:first-child {
+            padding-top: 0;
+        }
+
+        .settings-section:last-child {
+            border-bottom: none;
+        }
+
+
+        /* Section title */
+
+        .settings-section-title {
+            font-size: 15px;
+
+            font-weight: 600;
+
+            margin-bottom: 5px;
+        }
+
+
+        /* Description */
+
+        .settings-section-description {
+            color: #888;
+
+            font-size: 13px;
+
+            line-height: 1.5;
+
+            margin-bottom: 18px;
+        }
+
+
+        /* Labels */
+
+        .settings-label {
+            display: block;
+
+            margin-bottom: 7px;
+
+            font-size: 13px;
+
+            color: #bbb;
+        }
+
+
+        /* Inputs */
+
+        .settings-input {
+            width: 100%;
+
+            box-sizing: border-box;
+
+            padding: 11px 12px;
+
+            border: 1px solid #383838;
+
+            border-radius: 8px;
+
+            background: #1a1a1a;
+
+            color: #eee;
+
+            font-size: 14px;
+
+            outline: none;
+
+            transition:
+                border-color 0.15s,
+                background 0.15s;
+        }
+
+        .settings-input:focus {
+            border-color: #666;
+
+            background: #1e1e1e;
+        }
+
+        .settings-input::placeholder {
+            color: #666;
+        }
+
+
+        /* Webhook input */
+
+        .webhook-input-wrapper {
+            display: flex;
+
+            align-items: stretch;
+
+            gap: 8px;
+        }
+
+        .webhook-input {
+            flex: 1;
+        }
+
+
+        /* Peek button */
+
+        .peek-button {
+            flex-shrink: 0;
+
+            padding: 0 14px;
+
+            border: 1px solid #383838;
+
+            border-radius: 8px;
+
+            background: #1c1c1c;
+
+            color: #bbb;
+
+            font-size: 13px;
+
+            cursor: pointer;
+
+            transition:
+                background 0.15s,
+                color 0.15s,
+                border-color 0.15s;
+        }
+
+        .peek-button:hover {
+            background: #292929;
+
+            color: white;
+
+            border-color: #555;
+        }
+
+
+        /* Help text */
+
+        .settings-help {
+            margin-top: 7px;
+
+            color: #777;
+
+            font-size: 12px;
+        }
+
+
+        /* Footer */
+
+        .settings-footer {
+            display: flex;
+
+            align-items: center;
+
+            justify-content: space-between;
+
+            gap: 15px;
+
+            padding: 16px 24px;
+
+            border-top: 1px solid #2a2a2a;
+
+            background: #0d0d0d;
+        }
+
+
+        /* Save / Cancel buttons */
+
+        .settings-actions {
+            display: flex;
+
+            align-items: center;
+
+            gap: 8px;
+
+            margin-left: auto;
+        }
+
+        .settings-actions button {
+            padding: 9px 15px;
+
+            border-radius: 8px;
+
+            font-size: 13px;
+
+            cursor: pointer;
+        }
+
+
+        /* Save */
+
+        .settings-actions .save-button {
+            border: 1px solid #555;
+
+            background: #eee;
+
+            color: #111;
+        }
+
+        .settings-actions .save-button:hover {
+            background: white;
+        }
+
+
+        /* Cancel */
+
+        /* .settings-actions .discard-button {
+            border: 1px solid #333;
+
+            background: transparent;
+
+            color: #aaa;
+        }
+
+        .settings-actions .discard-button:hover {
+            background: #222;
+
+            color: white;
+        } */
+
+
+        /* Save status */
+
+        .settings-message {
+            font-size: 13px;
+
+            min-height: 18px;
+        }
+
+        .settings-message.success {
+            color: #7ed957;
+        }
+
+        .settings-message.error {
+            color: #ff6b6b;
+        }
+
+
+        /* Mobile */
+
+        @media (max-width: 600px) {
+
+            .settings-modal {
+                padding: 10px;
+            }
+
+            .settings-window {
+                max-height: 95vh;
+
+                border-radius: 12px;
+            }
+
+            .settings-header {
+                padding: 18px;
+            }
+
+            .settings-body {
+                padding: 18px;
+            }
+
+            .settings-footer {
+                padding: 14px 18px;
+
+                align-items: flex-end;
+
+                flex-direction: column;
+            }
+
+            .settings-actions {
+                width: 100%;
+            }
+
+            .settings-actions button {
+                flex: 1;
+            }
+
+            .settings-message {
+                width: 100%;
+            }
+
+            .webhook-input-wrapper {
+                flex-direction: column;
+            }
+
+            .peek-button {
+                padding: 10px;
+            }
+
+        }
     </style>
 </head>
 
@@ -302,55 +719,207 @@
             <div id="updated">Loading...</div>
         </header>
 
-        <div class="status-grid">
-            <div class="card">
-                <div class="muted">Status</div>
-                <div class="value" id="status">—</div>
-            </div>
-            <div class="card">
-                <div class="muted">Mode</div>
-                <div class="value" id="mode">—</div>
-            </div>
-            <div class="card">
-                <div class="muted">Monitoring</div>
-                <div class="value" id="count">—</div>
-            </div>
-            <div class="card">
-                <div class="muted">Last Check</div>
-                <div class="value" id="last-check">—</div>
-            </div>
-            <div class="card">
-                <div class="muted">Next Check</div>
-                <div class="value" id="next-check">—</div>
-            </div>
+    <div class="status-grid">
+
+        <div class="card">
+            <div class="muted">Status</div>
+            <div class="value" id="status">—</div>
         </div>
 
-        <div class="controls">
-            <button class="primary" onclick="setAll()">Monitor All</button>
-            <button onclick="clearAll()">Deselect All</button>
-            <button onclick="checkNow()">Check Now</button>
-            <button onclick="refresh()">Refresh</button>
+        <div class="card">
+            <div class="muted">Mode</div>
+            <div class="value" id="mode">—</div>
         </div>
 
-        <div id="saveBar" style="display: none;">
-            <button id="saveChangesButton" class="save-button" onclick="saveChanges()">
-                Save Changes
-            </button>
-
-            <button id="discardChangesButton" class="discard-button" onclick="discardChanges()"
-                onhover="this.style.backgroundColor='rgba(255, 0, 0, 0.1)';"
-                onmouseout="this.style.backgroundColor='transparent';">
-                Cancel
-            </button>
-
-            <span id="unsavedText">
-                Unsaved changes
-            </span>
+        <div class="card">
+            <div class="muted">Monitoring</div>
+            <div class="value" id="count">—</div>
         </div>
 
-        <div id="error" class="error"></div>
-        <div id="movies" class="movie-grid"></div>
+        <div class="card">
+            <div class="muted">Last Check</div>
+            <div class="value" id="last-check">—</div>
+        </div>
+
+        <div class="card">
+            <div class="muted">Next Check</div>
+            <div class="value" id="next-check">—</div>
+        </div>
+
     </div>
+
+    <div class="controls">
+
+        <button class="primary" onclick="setAll()">
+            Monitor All
+        </button>
+
+        <button onclick="clearAll()">
+            Deselect All
+        </button>
+
+        <button onclick="checkNow()">
+            Check Now
+        </button>
+
+        <button onclick="refresh()">
+            Refresh
+        </button>
+
+        <button class="nav-button" onclick="openSettings()">
+            ⚙ Settings
+        </button>
+
+    </div>
+
+
+    <!-- =====================================================
+     SETTINGS MODAL
+     ===================================================== -->
+
+    <div id="settingsModal" class="settings-modal" onclick="handleSettingsOverlayClick(event)">
+
+        <div class="settings-window" onclick="event.stopPropagation()">
+
+            <!-- Header -->
+
+            <div class="settings-header">
+
+                <div>
+                    <h2>⚙ Settings</h2>
+
+                    <div class="muted">
+                        Configure your IMAX monitor
+                    </div>
+                </div>
+
+                <button class="settings-close" onclick="closeSettings()" aria-label="Close settings">
+                    ×
+                </button>
+
+            </div>
+
+
+            <!-- Body -->
+
+            <div class="settings-body">
+
+
+                <!-- IMAX THEATRE -->
+
+                <div class="settings-section">
+
+                    <div class="settings-section-title">
+                        IMAX Theatre
+                    </div>
+
+                    <div class="settings-section-description">
+                        The IMAX theatre page that the monitor checks
+                        for showtimes.
+                    </div>
+
+
+                    <label for="imax-theatre-url" class="settings-label">
+                        Theatre URL
+                    </label>
+
+                    <input type="url" id="imax-theatre-url" class="settings-input"
+                        placeholder="https://www.imax.com/theatre/..." autocomplete="url">
+
+                </div>
+
+
+                <!-- DISCORD -->
+
+                <div class="settings-section">
+
+                    <div class="settings-section-title">
+                        Discord Notifications
+                    </div>
+
+                    <div class="settings-section-description">
+                        Send notifications when new IMAX showtimes
+                        are detected.
+                    </div>
+
+
+                    <label for="discord-webhook" class="settings-label">
+                        Discord Webhook
+                    </label>
+
+
+                    <div class="webhook-input-wrapper">
+
+                        <input type="password" id="discord-webhook" class="settings-input webhook-input"
+                            placeholder="https://discord.com/api/webhooks/..." autocomplete="off">
+
+                        <button type="button" id="peek-webhook-button" class="peek-button"
+                            onclick="toggleWebhookVisibility()">
+                            👁 Peek
+                        </button>
+
+                    </div>
+
+
+                    <div class="settings-help">
+                        Leave blank to disable Discord notifications.
+                    </div>
+
+                </div>
+
+
+            </div>
+
+
+            <!-- Footer -->
+
+            <div class="settings-footer">
+
+                <div id="settings-message" class="settings-message"></div>
+
+                <div class="settings-actions">
+
+                    <button class="discard-button" onclick="closeSettings()">
+                        Cancel
+                    </button>
+
+                    <button class="save-button" onclick="saveSettings()">
+                        Save Settings
+                    </button>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- =====================================================
+     MOVIE SAVE BAR
+     ===================================================== -->
+
+    <div id="saveBar" style="display: none;">
+
+        <button id="saveChangesButton" class="save-button" onclick="saveChanges()">
+            Save Changes
+        </button>
+
+        <button id="discardChangesButton" class="discard-button" onclick="discardChanges()">
+            Cancel
+        </button>
+
+        <span id="unsavedText">
+            Unsaved changes
+        </span>
+
+    </div>
+
+
+    <div id="error" class="error"></div>
+
+    <div id="movies" class="movie-grid"></div>
 
     <script>
 
@@ -751,8 +1320,189 @@
             ).textContent =
                 `${currentSelection.size} movie(s)`;
         }
+        function openSettings() {
+            const modal = document.getElementById("settingsModal");
+
+            const webhook = document.getElementById("discord-webhook");
+            const peekButton = document.getElementById("peek-webhook-button");
+            const message = document.getElementById("settings-message");
+
+            // Always hide the webhook when opening settings
+            webhook.type = "password";
+            peekButton.textContent = "👁 Peek";
+
+            // Clear previous status message
+            message.textContent = "";
+            message.className = "settings-message";
+
+            modal.classList.add("open");
+
+            // Load the latest settings from the server
+            loadSettings();
+
+            // Prevent background scrolling
+            document.body.style.overflow = "hidden";
+        }
 
 
+        function closeSettings() {
+            const modal = document.getElementById("settingsModal");
+
+            modal.classList.remove("open");
+
+            document.body.style.overflow = "";
+        }
+
+
+        function handleSettingsOverlayClick(event) {
+            if (event.target.id === "settingsModal") {
+                closeSettings();
+            }
+        }
+
+
+        function toggleWebhookVisibility() {
+            const input =
+                document.getElementById("discord-webhook");
+
+            const button =
+                document.getElementById("peek-webhook-button");
+
+            button.textContent = "👁 Peek"
+        }
+
+
+        async function loadSettings() {
+
+            try {
+
+                const response = await fetch("/api/status");
+
+                if (!response.ok) {
+                    throw new Error("Failed to load settings");
+                }
+
+                const data = await response.json();
+
+                document.getElementById(
+                    "imax-theatre-url"
+                ).value = data.imax_theatre_url || "";
+
+                document.getElementById(
+                    "discord-webhook"
+                ).value = data.discord_webhook_url || "";
+
+            } catch (error) {
+
+                console.error(
+                    "Failed to load settings:",
+                    error
+                );
+
+            }
+        }
+
+
+        async function saveSettings() {
+
+            const imaxTheatreUrl =
+                document.getElementById(
+                    "imax-theatre-url"
+                ).value.trim();
+
+            const discordWebhook =
+                document.getElementById(
+                    "discord-webhook"
+                ).value.trim();
+
+            const message =
+                document.getElementById(
+                    "settings-message"
+                );
+
+
+            message.textContent = "Saving...";
+            message.className = "settings-message";
+
+
+            try {
+
+                const response = await fetch(
+                    "/api/settings",
+                    {
+                        method: "POST",
+
+                        headers: {
+                            "Content-Type":
+                                "application/json"
+                        },
+
+                        body: JSON.stringify({
+
+                            imax_theatre_url:
+                                imaxTheatreUrl,
+
+                            discord_webhook_url:
+                                discordWebhook
+
+                        })
+                    }
+                );
+
+
+                const data = await response.json();
+
+
+                if (!response.ok) {
+
+                    throw new Error(
+                        data.error ||
+                        "Failed to save settings"
+                    );
+
+                }
+
+
+                message.textContent =
+                    "✓ Settings saved";
+
+                message.className =
+                    "settings-message success";
+
+
+                // Hide the webhook after saving
+                const webhook =
+                    document.getElementById(
+                        "discord-webhook"
+                    );
+
+                const peekButton =
+                    document.getElementById(
+                        "peek-webhook-button"
+                    );
+
+                webhook.type = "password";
+
+                peekButton.textContent =
+                    "👁 Peek";
+
+
+                // Close after a short delay
+                setTimeout(() => {
+                    closeSettings();
+                }, 700);
+
+
+            } catch (error) {
+
+                message.textContent =
+                    "✗ " + error.message;
+
+                message.className =
+                    "settings-message error";
+
+            }
+        }
         // ============================================================
         // SAVE CHANGES
         // ============================================================

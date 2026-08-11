@@ -22,7 +22,7 @@ load_dotenv()
 # CONFIGURATION
 # ============================================================
 
-URL = "https://www.imax.com/theatre/regal-edwards-boise-imax"
+DEFAULT_IMAX_URL = "https://www.imax.com/theatre/regal-edwards-boise-imax"
 
 CHECK_INTERVAL_MINUTES = 15
 
@@ -32,10 +32,24 @@ STATUS_FILE = "imax_monitor_status.json"
 
 BOISE_TZ = ZoneInfo("America/Boise")
 
-DISCORD_WEBHOOK_URL = os.getenv(
-    "DISCORD_WEBHOOK_URL"
-)
+discord_webhook_url = os.getenv("DISCORD_WEBHOOK_URL", ""
+).strip()
 
+def load_monitor_config():
+
+    try:
+        with open(
+            CONFIG_FILE,
+            "r",
+            encoding="utf-8"
+        ) as f:
+            return json.load(f)
+
+    except (
+        OSError,
+        json.JSONDecodeError
+    ):
+        return {}
 
 # ============================================================
 # LOGGING
@@ -288,7 +302,7 @@ def send_discord_notification(new_showtimes):
     the asyncio event loop.
     """
 
-    if not DISCORD_WEBHOOK_URL:
+    if not discord_webhook_url:
 
         log(
             "⚠️  DISCORD_WEBHOOK_URL is not set."
@@ -318,7 +332,7 @@ def send_discord_notification(new_showtimes):
         lines.append("")
 
     lines.append(
-        f"🔗 {URL}"
+        f"🔗 {DEFAULT_IMAX_URL}"
     )
 
     message = "\n".join(lines)
@@ -333,7 +347,7 @@ def send_discord_notification(new_showtimes):
     ).encode("utf-8")
 
     request = Request(
-        DISCORD_WEBHOOK_URL,
+        discord_webhook_url,
         data=data,
         headers={
             "Content-Type": "application/json",
@@ -954,7 +968,7 @@ def parse_args():
 # INITIAL SITE SETUP
 # ============================================================
 
-async def check_site(args):
+async def check_site(args, imax_url):
     """
     Open the IMAX site and allow the user to select
     a movie or dynamic all-movie monitoring.
@@ -982,7 +996,7 @@ async def check_site(args):
         )
 
         response = await page.goto(
-            URL,
+            imax_url,
             wait_until="domcontentloaded",
             timeout=30_000,
         )
@@ -1067,6 +1081,18 @@ async def monitor(args):
 
     state = load_state()
 
+    monitor_config = load_monitor_config()
+    
+    imax_url = monitor_config.get(
+        "imax_theatre_url",
+        DEFAULT_IMAX_URL
+    )
+
+    discord_webhook_url = monitor_config.get(
+        "discord_webhook_url",
+        ""
+    )
+
     # If the web UI already has a configuration,
     # use it when no CLI movie-selection argument was supplied.
     web_config = load_web_config()
@@ -1096,7 +1122,7 @@ async def monitor(args):
             context,
             page,
             monitoring_config
-        ) = await check_site(args)
+        ) = await check_site(args, imax_url)
 
     except Exception as e:
 
@@ -1154,8 +1180,159 @@ async def monitor(args):
         while True:
 
             # ========================================================
-            # CHECK FOR WEB UI CONFIGURATION CHANGES
+            # CHECK FOR SETTINGS / WEB UI CONFIGURATION CHANGES
             # ========================================================
+
+            # Reload the monitor settings every cycle so a theatre URL
+            # saved from the web UI is picked up without restarting.
+            latest_monitor_config = load_monitor_config()
+            requested_imax_url = latest_monitor_config.get(
+                "imax_theatre_url",
+                DEFAULT_IMAX_URL
+            ).strip() or DEFAULT_IMAX_URL
+
+            if requested_imax_url != imax_url:
+
+                old_imax_url = imax_url
+                imax_url = requested_imax_url
+
+                log(
+                    "🌐 IMAX theatre URL changed."
+                )
+                log(
+                    f"   Old: {old_imax_url}"
+                )
+                log(
+                    f"   New: {imax_url}"
+                )
+
+                # ----------------------------------------------------
+                # RESET ALL THEATRE-SPECIFIC DATA
+                # ----------------------------------------------------
+                #
+                # Movie names, showtime state, and web UI showtimes
+                # belong to the previous theatre. Do not carry any of
+                # that data over to the new theatre.
+                #
+                # ----------------------------------------------------
+                # RESET ALL THEATRE-SPECIFIC DATA
+                # ----------------------------------------------------
+
+                # Clear showtime state.
+                state = {}
+                save_state(state)
+
+                # Clear all in-memory movie data.
+                available_movies = []
+                previous_movie_list = []
+                selected_movies = []
+
+                # Clear all web UI showtime data.
+                web_showtimes = {}
+
+                # ----------------------------------------------------
+                # CLEAR SAVED MOVIE SELECTIONS
+                # ----------------------------------------------------
+
+                current_web_config = load_json_file(
+                    CONFIG_FILE,
+                    {}
+                )
+
+                if current_web_config:
+
+                    current_web_config["movies"] = []
+                    current_web_config["updated_at"] = (
+                        datetime.now().isoformat()
+                    )
+
+                    save_json_file(
+                        CONFIG_FILE,
+                        current_web_config
+                    )
+
+                # ----------------------------------------------------
+                # CLEAR STATUS FILE
+                # ----------------------------------------------------
+
+                # IMPORTANT:
+                # The old status file must also be cleared.
+                # Otherwise the code below will load the old
+                # theatre's movies/showtimes back into memory.
+
+                empty_status = {
+                    "running": True,
+                    "mode": mode,
+                    "selected_movies": [],
+                    "available_movies": [],
+                    "showtimes": {},
+                    "last_check": None,
+                    "next_check": None,
+                    "error_message": "",
+                }
+
+                save_json_file(
+                    STATUS_FILE,
+                    empty_status
+                )
+
+                try:
+                    log(
+                        "🔄 Opening new IMAX theatre..."
+                    )
+
+                    response = await page.goto(
+                        imax_url,
+                        wait_until="domcontentloaded",
+                        timeout=30_000,
+                    )
+
+                    if response:
+                        log(
+                            f"HTTP status: {response.status}"
+                        )
+
+                    await page.wait_for_timeout(5_000)
+
+                    # Rebuild the movie list entirely from the new
+                    # theatre. Nothing from the old theatre is reused.
+                    new_movies = await get_movies(page)
+
+                    available_movies = new_movies.copy()
+                    previous_movie_list = new_movies.copy()
+
+                    if mode == "all":
+                        # ALL mode automatically monitors every movie
+                        # currently listed at the new theatre.
+                        selected_movies = new_movies.copy()
+
+                    else:
+                        # SELECTED mode starts empty because the old
+                        # theatre's selections are no longer valid.
+                        selected_movies = []
+
+                    log(
+                        f"✅ Switched to new theatre. "
+                        f"Found {len(new_movies)} movie(s)."
+                    )
+
+                    if mode == "selected":
+                        log(
+                            "ℹ️ Old movie selections were cleared. "
+                            "Select movies from the new theatre in "
+                            "the web UI."
+                        )
+
+                except Exception as e:
+
+                    log(
+                        f"❌ Could not open new IMAX theatre: {e}"
+                    )
+
+                    # Do not restore the old theatre's movies/state.
+                    # The old data has deliberately been discarded.
+                    # The next cycle will retry the new URL.
+                    errors += 1
 
             web_config = load_web_config()
 
@@ -1200,6 +1377,18 @@ async def monitor(args):
 
             all_new_showtimes = []
             errors = 0
+
+            # Current web UI showtime data. This is reset when the
+            # theatre changes so old-theatre showtimes are never reused.
+            old_status = load_json_file(
+                STATUS_FILE,
+                {}
+            )
+
+            web_showtimes = old_status.get(
+                "showtimes",
+                {}
+            )
 
             # ------------------------------------------------
             # REFRESH MOVIE LIST IN ALL MODE
@@ -1296,17 +1485,7 @@ async def monitor(args):
             )
 
             checked = 0
-            
-            old_status = load_json_file(
-                STATUS_FILE,
-                {}
-            )
-
-            web_showtimes = old_status.get(
-                "showtimes",
-                {}
-            )
-
+                   
             for movie in selected_movies:
 
                 try:

@@ -45,15 +45,34 @@ def load_config():
         {
             "mode": "selected",
             "movies": [],
+            "discord_webhook_url": "",
+            "imax_theatre_url": "",
             "updated_at": None,
         }
     )
 
 
-def save_config(mode, movies):
+def save_config(
+    mode,
+    movies,
+    discord_webhook_url=None,
+    imax_theatre_url=None
+):
+    current = load_config()
+
     config = {
         "mode": mode,
         "movies": movies,
+        "discord_webhook_url": (
+            discord_webhook_url
+            if discord_webhook_url is not None
+            else current.get("discord_webhook_url", "")
+        ),
+        "imax_theatre_url": (
+            imax_theatre_url
+            if imax_theatre_url is not None
+            else current.get("imax_theatre_url", "")
+        ),
         "updated_at": datetime.now().isoformat(),
     }
 
@@ -245,6 +264,16 @@ class Handler(BaseHTTPRequestHandler):
                 "showtimes",
                 {}
             )
+            
+            status["discord_webhook_url"] = config.get(
+                "discord_webhook_url",
+                ""
+            )
+
+            status["imax_theatre_url"] = config.get(
+                "imax_theatre_url",
+                ""
+            )
 
             self.send_json(status)
 
@@ -362,6 +391,111 @@ class Handler(BaseHTTPRequestHandler):
                 "mode": config["mode"],
                 "movies": config["movies"],
                 "updated_at": config["updated_at"],
+            })
+
+            return
+        
+        # ----------------------------------------------------
+        # SAVE SETTINGS
+        # ----------------------------------------------------
+
+        if path == "/api/settings":
+
+            discord_webhook_url = str(
+                data.get(
+                    "discord_webhook_url",
+                    ""
+                )
+            ).strip()
+
+            imax_theatre_url = str(
+                data.get(
+                    "imax_theatre_url",
+                    ""
+                )
+            ).strip()
+
+            # Basic validation
+            if discord_webhook_url:
+                if not (
+                    discord_webhook_url.startswith(
+                        "https://discord.com/api/webhooks/"
+                    )
+                    or
+                    discord_webhook_url.startswith(
+                        "https://discordapp.com/api/webhooks/"
+                    )
+                ):
+                    self.send_json(
+                        {
+                            "error":
+                            "Invalid Discord webhook URL"
+                        },
+                        400
+                    )
+                    return
+
+            if not imax_theatre_url:
+                self.send_json(
+                    {
+                        "error":
+                        "IMAX theatre URL cannot be empty"
+                    },
+                    400
+                )
+                return
+
+            if not (
+                imax_theatre_url.startswith("https://")
+                or
+                imax_theatre_url.startswith("http://")
+            ):
+                self.send_json(
+                    {
+                        "error":
+                        "Invalid IMAX theatre URL"
+                    },
+                    400
+                )
+                return
+
+            current = load_config()
+
+            config = save_config(
+                current.get(
+                    "mode",
+                    "selected"
+                ),
+                current.get(
+                    "movies",
+                    []
+                ),
+                discord_webhook_url,
+                imax_theatre_url
+            )
+
+            print("[WEB] Saved settings:")
+            print(
+                f"[WEB]   IMAX URL: "
+                f"{imax_theatre_url}"
+            )
+
+            print(
+                "[WEB]   Discord webhook: "
+                f"{'configured' if discord_webhook_url else 'disabled'}"
+            )
+
+            self.send_json({
+                "ok": True,
+                "discord_webhook_url": (
+                    config["discord_webhook_url"]
+                ),
+                "imax_theatre_url": (
+                    config["imax_theatre_url"]
+                ),
+                "updated_at": (
+                    config["updated_at"]
+                ),
             })
 
             return

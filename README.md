@@ -1,8 +1,11 @@
 # 🎬 IMAX Showtime Monitor
 
+<img width="1168" height="739" alt="image" src="https://github.com/user-attachments/assets/23de1e9a-5db2-4351-8f73-332171303b94" />
+
 A Python-based monitoring service that automatically tracks movie availability at the **Regal Edwards Boise IMAX**, detects newly released showtimes, and sends real-time Discord notifications.
 
 The monitor uses **Playwright with Chromium** to interact with the live IMAX website, dynamically discovers available movies, supports monitoring a single movie or **all currently available movies**, and maintains persistent state between checks to prevent duplicate notifications.
+
 
 ---
 
